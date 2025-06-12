@@ -1,28 +1,44 @@
 import numpy as np
 
-from .defuzzifier import Defuzzifier
+from modules.defuzzifier import Defuzzifier
 
 class FuzzyController:
-    def __init__(self, input_vars, output_var, rules):
-        self.input_vars = input_vars  # dict name : FuzzyVariable
-        self.output_var = output_var  # FuzzyVariable
+    """
+    Führt Inferenz und Defuzzifizierung durch.
+    input_vars:  Dict[name, FuzzyVariable]
+    output_var:  FuzzyVariable
+    rules:       List[FuzzyRule]
+    """
+    def __init__(self, input_vars: dict, output_var, rules: list):
+        self.input_vars = input_vars
+        self.output_var = output_var
         self.rules = rules
-        self.xs = np.linspace(0, 100, 1001)
+        # x-Achse für Output-MF
+        self.xs = np.linspace(output_var.domain[0], output_var.domain[1], 500)
 
-    def infer(self, crisp_inputs):
-        fuzzified = {name: var.fuzzify(value)
-                     for name, value in crisp_inputs.items() for var in [self.input_vars[name]]}
+    def infer(self, crisp_inputs: dict):
+        # 1) Fuzzification
+        fuzzified = {name: var.fuzzify(crisp_inputs[name])
+                     for name, var in self.input_vars.items()}
+        # 2) Rule Evaluation & Aggregation
         agg = {term: 0.0 for term in self.output_var.terms}
         for rule in self.rules:
-            degree = rule.evaluate(fuzzified)
+            alpha = rule.evaluate(fuzzified)
             _, out_term = rule.consequent
-            agg[out_term] = max(agg[out_term], degree)
+            agg[out_term] = max(agg[out_term], alpha)
+        # 3) Build aggregated output fuzzy set
         ys = np.zeros_like(self.xs)
         for term, degree in agg.items():
             mf = self.output_var.terms[term]
             ys = np.maximum(ys, np.minimum(degree, np.array([mf(x) for x in self.xs])))
-        return agg, ys
+        return fuzzified, agg, ys
 
-    def defuzzify(self, ys, method='centroid'):
+    def defuzzify(self, ys: np.ndarray, method: str = 'centroid') -> float:
+        """
+        Wahl der Defuzzifizierung:
+        'min_of_max', 'max_of_max', 'mean_of_max',
+        'bisector', 'blend', 'centroid'
+        """
         f = getattr(Defuzzifier, method)
-        return f(self.xs, ys)
+        return float(f(self.xs, ys))
+
